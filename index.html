@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Erinnerungen">
+<meta name="theme-color" content="#fdf8f4">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Meine Erinnerungen</title>
+<style>
+/* Pastell-Farben: hier zentral änderbar */
+:root{--bg:#fdf8f4;--card:#fff;--text:#4a4458;--soft:#9a93a8;--line:#efe8f0;--accent:#cdb4f6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 -apple-system,system-ui,sans-serif;
+ padding:env(safe-area-inset-top) 0 calc(80px + env(safe-area-inset-bottom))}
+main{max-width:640px;margin:0 auto;padding:16px}
+#chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px}
+.chip{flex:none;border:0;border-radius:20px;padding:8px 14px;background:var(--c,#eee);color:var(--text);font:inherit;opacity:.65}
+.chip.on{opacity:1;box-shadow:0 0 0 2px var(--text) inset}
+h1{display:flex;align-items:center;justify-content:space-between;font-size:28px;margin:16px 0 8px}
+h1 button{border:0;background:none;font-size:22px}
+ul{list-style:none;margin:0;padding:0}
+.todo{display:flex;gap:12px;align-items:flex-start;background:var(--card);border-radius:16px;padding:12px;margin-bottom:8px;
+ transition:opacity .3s,transform .3s}
+.todo.leaving{opacity:0;transform:translateX(40px)}
+.check{flex:none;width:26px;height:26px;border-radius:50%;border:2px solid var(--c);background:#fff;margin-top:1px}
+.done .check{background:var(--c)}
+.done .tt{text-decoration:line-through;color:var(--soft)}
+.txt{flex:1;min-width:0}
+.meta{font-size:13px;color:var(--soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.empty{text-align:center;color:var(--soft);padding:40px 0}
+#bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);padding:10px 16px calc(10px + env(safe-area-inset-bottom));
+ display:flex;gap:8px;max-width:640px;margin:0 auto}
+input,textarea,select,.btn{font:inherit;color:var(--text)}
+#bar input{flex:1}
+input[type=text],input[type=number],input[type=datetime-local],textarea,select{width:100%;border:1.5px solid var(--line);
+ border-radius:12px;padding:10px;background:#fff}
+.btn{border:0;border-radius:12px;padding:10px 16px;background:var(--accent)}
+.btn.red{background:#f9c6c9}.btn.grey{background:var(--line)}
+dialog{border:0;border-radius:20px;padding:20px;width:min(92vw,440px);background:var(--bg);color:var(--text)}
+dialog::backdrop{background:#4a445855}
+dialog label.f{display:block;font-size:13px;color:var(--soft);margin:12px 0 4px}
+.row{display:flex;gap:8px;margin-top:16px;justify-content:flex-end}
+.picks{display:flex;flex-wrap:wrap;gap:6px}
+.pick{background:var(--c);border-radius:14px;padding:6px 10px;font-size:14px}
+.icons{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;max-height:140px;overflow:auto}
+.icons button{border:2px solid transparent;background:#fff;border-radius:10px;font-size:22px;padding:4px}
+.icons button.on{border-color:var(--text)}
+.colorrow{display:flex;gap:8px}.colorrow input[type=color]{width:52px;height:44px;border:0;padding:0;background:none}
+</style>
+</head>
+<body>
+<main>
+  <div id="chips"></div>
+  <h1><span id="title"></span><button id="editList" title="Liste bearbeiten">✏️</button></h1>
+  <ul id="todos"></ul>
+</main>
+<div id="bar">
+  <input type="text" id="newTodo" placeholder="Neue Erinnerung …" enterkeyhint="done">
+  <button class="btn" id="addBtn">＋</button>
+</div>
+
+<!-- Dialog: Todo bearbeiten -->
+<dialog id="todoDlg">
+  <label class="f">Titel</label><input type="text" id="tTitle">
+  <label class="f">Datum &amp; Uhrzeit</label><input type="datetime-local" id="tDue">
+  <label class="f">Kommentar</label><textarea id="tNote" rows="3"></textarea>
+  <label class="f">In diesen Listen</label><div class="picks" id="tLists"></div>
+  <label class="f">Wenn erledigt …</label>
+  <select id="tMode"><option value="strike">durchgestrichen anzeigen</option><option value="remove">verschwinden</option></select>
+  <label class="f">Wieder offen nach X Tagen (0 = nie)</label><input type="number" id="tRepeat" min="0">
+  <div class="row"><button class="btn red" id="tDel">Löschen</button><button class="btn grey" id="tCancel">Abbrechen</button><button class="btn" id="tSave">Fertig</button></div>
+</dialog>
+
+<!-- Dialog: Liste bearbeiten -->
+<dialog id="listDlg">
+  <label class="f">Name</label><input type="text" id="lName">
+  <label class="f">Farbe (Farbkreis oder #Hex-Code)</label>
+  <div class="colorrow"><input type="color" id="lColor"><input type="text" id="lHex" maxlength="7"></div>
+  <label class="f">Icon</label><div class="icons" id="lIcons"></div>
+  <div class="row"><button class="btn red" id="lDel">Löschen</button><button class="btn grey" id="lCancel">Abbrechen</button><button class="btn" id="lSave">Fertig</button></div>
+</dialog>
+
+<script>
+// ---------- Daten ----------
+const KEY = 'erinnerungen-v1';
+// Aufbau: lists = [{id,name,color,icon}], todos = [{id,title,done,doneAt,lists:[ids],mode,repeat,due,note}]
+let S = JSON.parse(localStorage.getItem(KEY) || 'null') ||
+  { lists: [{ id: 'l1', name: 'Allgemein', color: '#cdb4f6', icon: '📝' }], todos: [] };
+let cur = 'all';           // aktuell gewählte Liste
+let editTodo = null, editList = null, pickedIcon = '📝';
+const $ = s => document.querySelector(s);
+const save = () => localStorage.setItem(KEY, JSON.stringify(S));
+const uid = () => Math.random().toString(36).slice(2, 9);
+const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ICONS = '📝 🛒 🏠 💼 🎓 💪 🍎 🍳 ☕ 🎵 🎮 📚 ✈️ 🚗 🚲 💊 💰 🎁 🎂 ❤️ ⭐ 🌱 🌸 🐶 🐱 🧹 🧺 📞 💻 📷 🎨 ✂️ 🔧 🏃 🧘 🛏️ 🌙 ☀️ ☂️ 🎬 🍕 🥗 🍰 🚿 🪴 📦 📅 🔔'.split(' ');
+
+// ---------- Wiederholung: erledigte Todos nach X Tagen wieder öffnen ----------
+function resetRepeats() {
+  let changed = false;
+  S.todos.forEach(t => {
+    if (t.done && t.repeat > 0 && Date.now() - t.doneAt >= t.repeat * 864e5) { t.done = false; changed = true; }
+  });
+  if (changed) save();
+}
+
+// ---------- Anzeige ----------
+function render() {
+  resetRepeats();
+  const chips = [{ id: 'all', name: 'Alle', color: '#e6dff5', icon: '🗂️' }, ...S.lists];
+  $('#chips').innerHTML = chips.map(l =>
+    `<button class="chip ${l.id === cur ? 'on' : ''}" style="--c:${l.color}" data-l="${l.id}">${l.icon} ${esc(l.name)}</button>`
+  ).join('') + '<button class="chip" id="newList" style="--c:#fff">＋ Liste</button>';
+
+  const list = S.lists.find(l => l.id === cur);
+  if (!list) cur = 'all';
+  $('#title').textContent = list ? `${list.icon} ${list.name}` : 'Alle Erinnerungen';
+  $('#editList').hidden = !list;
+
+  // sichtbar: in der Liste, und nicht "erledigt + verschwinden"
+  const items = S.todos
+    .filter(t => (cur === 'all' || t.lists.includes(cur)) && !(t.done && t.mode === 'remove'))
+    .sort((a, b) => a.done - b.done);
+
+  $('#todos').innerHTML = items.length ? items.map(t => {
+    const first = S.lists.find(l => l.id === t.lists[0]);
+    const meta = [
+      t.due ? '🕒 ' + new Date(t.due).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : '',
+      t.repeat > 0 ? `🔁 alle ${t.repeat} Tage` : '',
+      t.note ? '💬 ' + esc(t.note) : '',
+      cur === 'all' ? t.lists.map(id => (S.lists.find(l => l.id === id) || {}).icon || '').join('') : ''
+    ].filter(Boolean).join(' · ');
+    return `<li class="todo ${t.done ? 'done' : ''}" data-id="${t.id}">
+      <button class="check" style="--c:${first ? first.color : '#cdb4f6'}" aria-label="Erledigt"></button>
+      <div class="txt"><div class="tt">${esc(t.title)}</div>${meta ? `<div class="meta">${meta}</div>` : ''}</div></li>`;
+  }).join('') : '<div class="empty">Nichts zu tun 🎉</div>';
+}
+
+// ---------- Erledigen (gilt für alle Listen, weil das Todo nur einmal existiert) ----------
+function toggle(id) {
+  const t = S.todos.find(x => x.id === id);
+  t.done = !t.done;
+  t.doneAt = t.done ? Date.now() : 0;
+  save();
+  const li = document.querySelector(`[data-id="${id}"]`);
+  if (t.done && t.mode === 'remove' && li) { li.classList.add('leaving'); setTimeout(render, 350); }
+  else render();
+}
+
+// ---------- Klicks ----------
+$('#todos').onclick = e => {
+  const li = e.target.closest('.todo'); if (!li) return;
+  e.target.closest('.check') ? toggle(li.dataset.id) : openTodo(li.dataset.id);
+};
+$('#chips').onclick = e => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  if (b.id === 'newList') return openList(null);
+  cur = b.dataset.l; render();
+};
+$('#editList').onclick = () => openList(cur);
+
+function addTodo() {
+  const title = $('#newTodo').value.trim(); if (!title) return;
+  const target = cur !== 'all' ? cur : S.lists[0] && S.lists[0].id;
+  S.todos.push({ id: uid(), title, done: false, doneAt: 0, lists: target ? [target] : [], mode: 'strike', repeat: 0, due: '', note: '' });
+  $('#newTodo').value = ''; save(); render();
+}
+$('#addBtn').onclick = addTodo;
+$('#newTodo').onkeydown = e => { if (e.key === 'Enter') addTodo(); };
+
+// ---------- Todo-Dialog ----------
+function openTodo(id) {
+  editTodo = S.todos.find(x => x.id === id);
+  $('#tTitle').value = editTodo.title; $('#tDue').value = editTodo.due || '';
+  $('#tNote').value = editTodo.note || ''; $('#tMode').value = editTodo.mode; $('#tRepeat').value = editTodo.repeat || 0;
+  $('#tLists').innerHTML = S.lists.map(l =>
+    `<label class="pick" style="--c:${l.color}"><input type="checkbox" value="${l.id}" ${editTodo.lists.includes(l.id) ? 'checked' : ''}> ${l.icon} ${esc(l.name)}</label>`
+  ).join('');
+  $('#todoDlg').showModal();
+}
+$('#tSave').onclick = () => {
+  Object.assign(editTodo, {
+    title: $('#tTitle').value.trim() || editTodo.title, due: $('#tDue').value, note: $('#tNote').value.trim(),
+    mode: $('#tMode').value, repeat: Math.max(0, +$('#tRepeat').value || 0),
+    lists: [...document.querySelectorAll('#tLists input:checked')].map(i => i.value)
+  });
+  save(); $('#todoDlg').close(); render();
+};
+$('#tDel').onclick = () => { S.todos = S.todos.filter(t => t !== editTodo); save(); $('#todoDlg').close(); render(); };
+$('#tCancel').onclick = () => $('#todoDlg').close();
+
+// ---------- Listen-Dialog ----------
+function drawIcons() {
+  $('#lIcons').innerHTML = ICONS.map(i => `<button type="button" class="${i === pickedIcon ? 'on' : ''}">${i}</button>`).join('');
+}
+function openList(id) {
+  editList = id ? S.lists.find(l => l.id === id) : null;
+  $('#lName').value = editList ? editList.name : '';
+  const col = editList ? editList.color : '#f6c6d8';
+  $('#lColor').value = col; $('#lHex').value = col;
+  pickedIcon = editList ? editList.icon : '📝'; drawIcons();
+  $('#lDel').hidden = !editList;
+  $('#listDlg').showModal();
+}
+$('#lIcons').onclick = e => { if (e.target.tagName === 'BUTTON') { pickedIcon = e.target.textContent; drawIcons(); } };
+$('#lColor').oninput = () => $('#lHex').value = $('#lColor').value;                       // Farbkreis -> Hex
+$('#lHex').oninput = () => { if (/^#[0-9a-f]{6}$/i.test($('#lHex').value)) $('#lColor').value = $('#lHex').value; }; // Hex -> Farbkreis
+$('#lSave').onclick = () => {
+  const name = $('#lName').value.trim() || 'Neue Liste';
+  const color = /^#[0-9a-f]{6}$/i.test($('#lHex').value) ? $('#lHex').value : $('#lColor').value;
+  if (editList) Object.assign(editList, { name, color, icon: pickedIcon });
+  else { const l = { id: uid(), name, color, icon: pickedIcon }; S.lists.push(l); cur = l.id; }
+  save(); $('#listDlg').close(); render();
+};
+$('#lDel').onclick = () => {
+  if (!confirm('Liste löschen? Die Todos bleiben unter "Alle" erhalten.')) return;
+  S.lists = S.lists.filter(l => l !== editList);
+  S.todos.forEach(t => t.lists = t.lists.filter(id => id !== editList.id));
+  cur = 'all'; save(); $('#listDlg').close(); render();
+};
+$('#lCancel').onclick = () => $('#listDlg').close();
+
+render();
+setInterval(render, 60000); // Wiederholungen jede Minute prüfen
+</script>
+</body>
+</html>
